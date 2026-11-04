@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mon assistant</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top"><h1 id="head">Aujourd'hui</h1></header>
+<main>
+  <form id="cap" class="cap" autocomplete="off">
+    <input id="in" placeholder="ex : rdv dentiste demain 14h30" aria-label="Saisie rapide" autofocus>
+    <button type="button" id="mic" title="Dicter" aria-label="Dicter" hidden>🎤</button>
+    <button class="primary">Ajouter</button>
+  </form>
+  <p class="hint" id="prev"></p>
+  <nav id="tabs" class="tabs">
+    <button data-v="today" class="on">Aujourd'hui</button>
+    <button data-v="next">À venir</button>
+    <button data-v="notes">Notes</button>
+  </nav>
+  <div id="view"></div>
+  <details class="data">
+    <summary>Aide et données</summary>
+    <p class="hint">Mots-clés en début de phrase : <b>rdv</b>, <b>mail</b>, <b>note</b> (sinon c'est une tâche). Dates reconnues : aujourd'hui, demain, après-demain, lundi…dimanche, 12/03, dans 3 jours. Heures : 14h, 14h30, 9:15.</p>
+    <div class="row">
+      <button id="ics">Rendez-vous vers l'agenda (.ics)</button>
+      <button id="exp">Sauvegarder (JSON)</button>
+      <label class="btn">Restaurer<input id="imp" type="file" accept=".json" hidden></label>
+      <button id="wipe" class="danger">Tout effacer</button>
+    </div>
+  </details>
+</main>
+<div id="toast" role="status" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>
