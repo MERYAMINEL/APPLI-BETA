@@ -50,6 +50,10 @@ Tout est enregistré dans le navigateur (`localStorage`), sur l'appareil utilis�
 | `app.js` | Interface |
 | `sw.js`, `manifest.webmanifest`, `icon.svg` | Installation et mode hors ligne |
 | `tests/core.test.js` | Tests unitaires de `core.js` |
+| `build.js` | Assemble l'application en un seul fichier dans `dist/` (`node build.js`) |
+
+## Une seule page
+`node build.js` produit `dist/budget-epargne.html`, un fichier autonome qu'on peut ouvrir, envoyer ou héberger tel quel. Dans une page intégrée (où les téléchargements et `confirm()` sont bloqués), les sauvegardes s'affichent dans une fenêtre à copier, et une fenêtre de restauration permet de les recoller.
 
 ## Tests
 ```bash

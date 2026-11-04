@@ -162,7 +162,7 @@ const empty = (...k) => h("div", { class: "empty" }, k);
 /* ---------- accueil ---------- */
 function viewDash(v) {
   const T = Core.totals(S, ui.month), sp = Core.spendByCat(S, ui.month), today = todayStr();
-  v.append(monthBar(h("button", { class: "btn small no-print", type: "button", onclick: () => window.print() }, "Imprimer")));
+  v.append(monthBar(inFrame ? null : h("button", { class: "btn small no-print", type: "button", onclick: () => window.print() }, "Imprimer")));
   v.append(h("div", { class: "grid cards" }, kpi("Revenus", fmt(T.rev), "good"), kpi("Dépenses", fmt(T.dep)), kpi("Solde du mois", fmt(T.solde), T.solde >= 0 ? "good" : "bad"), kpi("Taux d'épargne", T.taux == null ? "—" : Math.round(T.taux * 100) + " %", T.taux != null && T.taux < 0 ? "bad" : "")));
 
   const left = [], f = Core.forecast(S, ui.month, today);
@@ -357,27 +357,34 @@ function viewSet(v) {
 
   v.append(section("Données", h("p", { class: "muted small-t", style: "margin-top:0" }, "Tout est enregistré dans ce navigateur, sur cet appareil. Fais une sauvegarde de temps en temps."),
     h("div", { class: "row" }, h("button", { class: "btn", type: "button", onclick: exportJSON }, "Sauvegarder (JSON)"), h("button", { class: "btn", type: "button", onclick: exportCSV }, "Exporter en CSV"),
-      h("label", { class: "btn filebtn" }, "Restaurer une sauvegarde", h("input", { type: "file", accept: "application/json,.json", onchange: importJSON }))),
+      h("label", { class: "btn filebtn" }, "Restaurer un fichier", h("input", { type: "file", accept: "application/json,.json", onchange: importJSON })), h("button", { class: "btn", type: "button", onclick: pasteDialog }, "Coller une sauvegarde")),
     h("div", { class: "row", style: "margin-top:12px" }, h("button", { class: "btn", type: "button", onclick: demo }, "Charger des données d'exemple"),
-      h("button", { class: "btn danger", type: "button", onclick: () => { if (confirm("Effacer toutes les données ? Cette action est définitive.")) { const keepSettings = S.settings; S = Core.normalize({ settings: keepSettings }); save(); render(); toast("Données effacées"); } } }, "Tout effacer"))));
+      h("button", { class: "btn danger", type: "button", onclick: async () => { if (await askConfirm("Effacer toutes les données ? Cette action est définitive.", "Tout effacer")) { const keepSettings = S.settings; S = Core.normalize({ settings: keepSettings }); save(); render(); toast("Données effacées"); } } }, "Tout effacer"))));
   v.append(h("p", { class: "muted small-t", style: "text-align:center" }, "Raccourcis : N = nouvelle transaction · ← → = changer de mois"));
 }
 function download(name, text, mime) {
   const a = h("a", { href: URL.createObjectURL(new Blob([text], { type: mime })), download: name }); document.body.append(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
-const exportJSON = () => download(`budget-sauvegarde-${todayStr()}.json`, JSON.stringify(S, null, 2), "application/json");
+function saveText(name, text, mime, title) {
+  if (inFrame) textDialog(title, text, "Copie ce texte et garde-le dans un fichier ou une note. Pour restaurer, utilise « Coller une sauvegarde ».");
+  else download(name, text, mime);
+}
+const exportJSON = () => saveText(`budget-sauvegarde-${todayStr()}.json`, JSON.stringify(S, null, 2), "application/json", "Sauvegarde (JSON)");
 function exportCSV() {
   const q = (x) => `"${String(x).replace(/"/g, '""')}"`;
   const rows = [["date", "type", "montant", "categorie", "compte", "note"].join(";")].concat(S.transactions.slice().sort((a, b) => a.date.localeCompare(b.date)).map(t => [t.date, t.type, String(t.amount).replace(".", ","), q(t.type === "virement" ? "" : catN(t.type, t.category)), q(accN(t.account) + (t.toAccount ? " → " + accN(t.toAccount) : "")), q(t.note)].join(";")));
   download(`budget-transactions-${todayStr()}.csv`, "﻿" + rows.join("\n"), "text/csv");
 }
+async function restoreFromText(text) {
+  let d; try { d = Core.normalize(JSON.parse(text)); } catch (e) { toast("Fichier invalide."); return; }
+  if (await askConfirm(`Remplacer les données actuelles par la sauvegarde (${d.transactions.length} transactions) ?`, "Remplacer")) { S = d; Core.applyRecurring(S); save(); applyTheme(); render(); toast("Sauvegarde restaurée"); }
+}
 function importJSON(ev) {
   const f = ev.target.files[0]; if (!f) return; const r = new FileReader();
-  r.onload = () => { try { const d = Core.normalize(JSON.parse(r.result)); if (confirm(`Remplacer les données actuelles par la sauvegarde (${d.transactions.length} transactions) ?`)) { S = d; Core.applyRecurring(S); save(); applyTheme(); render(); toast("Sauvegarde restaurée"); } } catch (e) { toast("Fichier invalide."); } };
-  r.readAsText(f);
+  r.onload = () => restoreFromText(String(r.result)); r.readAsText(f); ev.target.value = "";
 }
-function demo() {
-  if (S.transactions.length && !confirm("Ajouter des données d'exemple à tes données actuelles ?")) return;
+async function demo() {
+  if (S.transactions.length && !(await askConfirm("Ajouter des données d'exemple à tes données actuelles ?", "Ajouter"))) return;
   const now = monthKey(todayStr()); if (!S.accounts.some(a => a.type === "epargne")) S.accounts.push({ id: "livret", name: "Livret A", type: "epargne", initial: 150 });
   for (let i = 0; i < 6; i++) {
     const k = shiftMonth(now, -i), add = (d, type, amount, category, note) => S.transactions.push({ id: uid(), date: `${k}-${pad(d)}`, type, amount, category, account: "main", note });
@@ -391,11 +398,38 @@ function demo() {
 }
 
 /* ---------- boîtes de dialogue ---------- */
-const dlg = document.getElementById("dlg");
+const dlg = document.getElementById("dlg"), dlg2 = document.getElementById("dlg2");
+const inFrame = window.self !== window.top;
+/* Quand une fenêtre se ferme, ne laisse pas le focus sur l'un de ses champs. */
+for (const d of [dlg, dlg2]) d.addEventListener("close", () => { if (d.contains(document.activeElement)) document.activeElement.blur(); });
+/* Confirmation intégrée à la page (confirm() n'est pas disponible dans une page intégrée). */
+function askConfirm(message, okLabel) {
+  return new Promise((resolve) => {
+    const ok = () => { dlg2.onclose = null; dlg2.close(); resolve(true); };
+    const okBtn = h("button", { class: "btn primary", type: "submit", onclick: (e) => { e.preventDefault(); ok(); } }, okLabel || "Confirmer");
+    const form = h("form", { method: "dialog" }, h("p", { style: "margin:0 0 4px" }, message),
+      h("div", { class: "actions" }, h("button", { class: "btn", type: "button", onclick: () => { dlg2.close(); resolve(false); } }, "Annuler"), okBtn));
+    form.addEventListener("submit", (e) => { e.preventDefault(); ok(); });
+    dlg2.replaceChildren(form); dlg2.onclose = () => resolve(false); dlg2.showModal(); okBtn.focus();
+  });
+}
+/* Affiche un texte à copier (sauvegarde) quand le téléchargement direct n'est pas possible. */
+function textDialog(title, text, hint) {
+  const ta = h("textarea", { readonly: true, rows: "8", style: "width:100%;font:13px/1.4 ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)" }); ta.value = text;
+  const copy = h("button", { class: "btn primary", type: "button", onclick: async () => { try { await navigator.clipboard.writeText(text); toast("Copié"); } catch (e) { ta.focus(); ta.select(); toast("Sélectionné : fais Ctrl+C"); } } }, "Copier");
+  openDlg(title, h("div", null, h("p", { class: "muted small-t", style: "margin-top:0" }, hint), ta), () => { }, false, copy);
+  ta.addEventListener("focus", () => ta.select());
+}
+function pasteDialog() {
+  const ta = h("textarea", { rows: "8", placeholder: "Colle ici le contenu d'une sauvegarde JSON", style: "width:100%;font:13px/1.4 ui-monospace,monospace;padding:8px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--ink)" });
+  openDlg("Restaurer une sauvegarde", ta, () => { restoreFromText(ta.value); }, "Restaurer"); ta.focus();
+}
 function openDlg(title, body, onSubmit, submitLabel, extra) {
   dlg.replaceChildren();
-  const form = h("form", { method: "dialog" }, h("h3", null, title), body, h("div", { class: "actions" }, extra || null, h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Annuler"), submitLabel === false ? null : h("button", { class: "btn primary", type: "submit" }, submitLabel || "Enregistrer")));
-  form.addEventListener("submit", (e) => { e.preventDefault(); if (onSubmit() !== false) dlg.close(); });
+  const run = () => { if (onSubmit() !== false) dlg.close(); };
+  const form = h("form", { method: "dialog" }, h("h3", null, title), body, h("div", { class: "actions" }, extra || null, h("button", { class: "btn", type: "button", onclick: () => dlg.close() }, "Annuler"),
+    submitLabel === false ? null : h("button", { class: "btn primary", type: "submit", onclick: (e) => { e.preventDefault(); if (form.reportValidity()) run(); } }, submitLabel || "Enregistrer")));
+  form.addEventListener("submit", (e) => { e.preventDefault(); run(); });
   dlg.append(form); dlg.showModal(); return form;
 }
 const field = (label, input) => h("div", null, h("label", null, label), input);
@@ -442,7 +476,7 @@ function recurringDialog(r) {
   const refresh = () => { segEl.replaceChildren(...[["depense", "Dépense"], ["revenu", "Revenu"]].map(([id, l]) => h("button", { type: "button", "aria-pressed": type === id, onclick: () => { type = id; refresh(); } }, l))); cat.replaceChildren(...S.categories[type].map(c => h("option", { value: c.id }, c.name))); cat.value = r && r.type === type ? r.category : S.categories[type][0].id; };
   refresh();
   const body = h("div", null, segEl, field("Montant", amount), field("Catégorie", cat), field("Compte", acc), field("Jour du mois (si le mois est plus court : dernier jour)", day), field("À partir du", start), field("Jusqu'au (facultatif)", end), field("Note", note), h("label", { class: "check" }, active, " Active"));
-  const del = r ? h("button", { class: "btn danger", type: "button", onclick: () => { if (confirm("Supprimer cette opération récurrente ? Les transactions déjà créées sont conservées.")) { S.recurring = S.recurring.filter(x => x.id !== r.id); save(); dlg.close(); render(); } } }, "Supprimer") : null;
+  const del = r ? h("button", { class: "btn danger", type: "button", onclick: async () => { if (await askConfirm("Supprimer cette opération récurrente ? Les transactions déjà créées sont conservées.", "Supprimer")) { S.recurring = S.recurring.filter(x => x.id !== r.id); save(); dlg.close(); render(); } } }, "Supprimer") : null;
   openDlg(r ? "Modifier l'opération récurrente" : "Nouvelle opération récurrente", body, () => {
     const n = num(amount.value); if (!(n > 0)) { toast("Montant invalide"); return false; }
     const rec = { id: r ? r.id : uid(), type, amount: round2(n), category: cat.value, account: acc.value, note: note.value.trim(), day: Math.min(31, Math.max(1, Math.round(+day.value) || 1)), start: start.value, end: end.value, active: active.checked, skipped: r ? r.skipped : [] };
@@ -454,8 +488,8 @@ function accountDialog(a) {
   const name = h("input", { type: "text", required: true, maxlength: "40", value: a ? a.name : "" });
   const type = h("select", null, [["courant", "Compte courant"], ["epargne", "Compte d'épargne"], ["especes", "Espèces"]].map(([k, l]) => h("option", { value: k, selected: a && a.type === k }, l)));
   const init = h("input", { type: "number", inputmode: "decimal", step: "0.01", value: a ? a.initial : 0 });
-  const del = a && S.accounts.length > 1 ? h("button", { class: "btn danger", type: "button", onclick: () => {
-    if (!confirm(`Supprimer le compte « ${a.name} » ? Ses transactions seront déplacées vers un autre compte (les virements concernés sont supprimés).`)) return;
+  const del = a && S.accounts.length > 1 ? h("button", { class: "btn danger", type: "button", onclick: async () => {
+    if (!(await askConfirm(`Supprimer le compte « ${a.name} » ? Ses transactions seront déplacées vers un autre compte (les virements concernés sont supprimés).`, "Supprimer"))) return;
     const other = S.accounts.find(x => x.id !== a.id).id;
     S.transactions = S.transactions.filter(t => !(t.type === "virement" && (t.account === a.id || t.toAccount === a.id)));
     S.transactions.forEach(t => { if (t.account === a.id) t.account = other; }); S.recurring.forEach(r => { if (r.account === a.id) r.account = other; });
@@ -485,9 +519,9 @@ function categoryDialog(type, c) {
   const name = h("input", { type: "text", required: true, maxlength: "40", value: c ? c.name : "" }), color = h("input", { type: "color", value: c ? c.color : Core.PALETTE[S.categories[type].length % Core.PALETTE.length], style: "padding:2px;height:44px" });
   const group = h("select", null, [["besoins", "Besoins"], ["envies", "Envies"]].map(([k, l]) => h("option", { value: k, selected: c && c.group === k }, l)));
   const fallback = type === "depense" ? "autres" : "autres-revenus";
-  const del = c && c.id !== fallback ? h("button", { class: "btn danger", type: "button", onclick: () => {
+  const del = c && c.id !== fallback ? h("button", { class: "btn danger", type: "button", onclick: async () => {
     const used = S.transactions.filter(t => t.type === type && t.category === c.id).length;
-    if (!confirm(`Supprimer « ${c.name} » ?${used ? ` Ses ${used} transaction(s) passeront dans « ${catN(type, fallback)} ».` : ""}`)) return;
+    if (!(await askConfirm(`Supprimer « ${c.name} » ?${used ? ` Ses ${used} transaction(s) passeront dans « ${catN(type, fallback)} ».` : ""}`, "Supprimer"))) return;
     S.transactions.forEach(t => { if (t.type === type && t.category === c.id) t.category = fallback; }); S.recurring.forEach(r => { if (r.type === type && r.category === c.id) r.category = fallback; });
     S.categories[type] = S.categories[type].filter(x => x.id !== c.id); delete S.budgets[c.id]; S.rules = S.rules.filter(r => r.category !== c.id); save(); dlg.close(); render(); } }, "Supprimer") : null;
   openDlg(c ? "Modifier la catégorie" : "Nouvelle catégorie", h("div", null, field("Nom", name), field("Couleur", color), type === "depense" ? field("Type de dépense (règle 50/30/20)", group) : null), () => {
@@ -552,8 +586,10 @@ function importMapping(rows) {
 
 /* ---------- raccourcis et démarrage ---------- */
 document.addEventListener("keydown", (e) => {
-  if (e.metaKey || e.ctrlKey || e.altKey || dlg.open || (S.settings.pinHash && !unlocked)) return;
-  if (/^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName)) return;
+  if (e.metaKey || e.ctrlKey || e.altKey || dlg.open || dlg2.open || (S.settings.pinHash && !unlocked)) return;
+  const ae = document.activeElement;
+  if (ae && ae.closest && ae.closest("dialog:not([open])")) ae.blur();   /* champ resté actif dans une fenêtre déjà fermée */
+  else if (/^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return;
   if (e.key === "n" || e.key === "N") { e.preventDefault(); txDialog(null); }
   else if (e.key === "ArrowLeft" && ["dash", "tx", "bud", "stats"].includes(ui.tab)) { ui.month = shiftMonth(ui.month, -1); render(); }
   else if (e.key === "ArrowRight" && ["dash", "tx", "bud", "stats"].includes(ui.tab)) { ui.month = shiftMonth(ui.month, 1); render(); }
