@@ -1,0 +1,14 @@
+{
+  "name": "Budget & épargne",
+  "short_name": "Budget",
+  "description": "Suivi de budget et d'épargne, hors ligne, sans compte.",
+  "lang": "fr",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f6f7f9",
+  "theme_color": "#2f6fed",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
